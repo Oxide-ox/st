@@ -13,11 +13,10 @@ Future<void> main() async {
   final handler = await AudioService.init(
     builder: () => MusicHandler(api),
     config: const AudioServiceConfig(
-      androidNotificationChannelId: 'com.singo.tune.playback',
+      androidNotificationChannelId: 'com.example.glassmusic.playback',
       androidNotificationChannelName: 'Pemutar musik',
       androidNotificationOngoing: true,
       androidStopForegroundOnPause: false,
-      androidStopOnRemoveTask: false,
     ),
   );
   final state = AppState(api: api, handler: handler);
