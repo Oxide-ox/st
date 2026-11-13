@@ -3,11 +3,59 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/playlist.dart';
 import '../models/song.dart';
+import '../services/island_bridge.dart';
 import '../state/app_state.dart';
 import 'glass.dart';
 import 'library_pages.dart';
 import 'now_playing.dart';
 import 'settings_tab.dart';
+
+class _FeaturedBand {
+  const _FeaturedBand({
+    required this.band,
+    required this.album,
+    required this.query,
+    required this.colors,
+  });
+
+  final String band;
+  final String album;
+  final String query;
+  final List<Color> colors;
+}
+
+const List<_FeaturedBand> _topBands = [
+  _FeaturedBand(
+    band: 'Stand Here Alone',
+    album: 'Melawan Dunia',
+    query: 'Stand Here Alone',
+    colors: [Color(0xFF7F1D1D), Color(0xFF1F2937)],
+  ),
+  _FeaturedBand(
+    band: 'Threesixty',
+    album: 'Mimpi dan Harapan',
+    query: 'Threesixty',
+    colors: [Color(0xFF1E3A8A), Color(0xFF0F172A)],
+  ),
+  _FeaturedBand(
+    band: 'Denny Caknan',
+    album: 'Kalih Welasku',
+    query: 'Denny Caknan',
+    colors: [Color(0xFF78350F), Color(0xFF1C1917)],
+  ),
+  _FeaturedBand(
+    band: 'for Revenge',
+    album: 'Perayaan Patah Hati - Babak 1',
+    query: 'for Revenge',
+    colors: [Color(0xFF4C1D95), Color(0xFF09090B)],
+  ),
+  _FeaturedBand(
+    band: 'Last Child',
+    album: 'Our Biggest Thing Ever',
+    query: 'Last Child',
+    colors: [Color(0xFF064E3B), Color(0xFF111827)],
+  ),
+];
 
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
@@ -67,6 +115,7 @@ class SearchTab extends StatefulWidget {
 
 class _SearchTabState extends State<SearchTab> {
   final _ctrl = TextEditingController();
+  String? _selectedBand;
 
   @override
   void dispose() {
@@ -74,17 +123,62 @@ class _SearchTabState extends State<SearchTab> {
     super.dispose();
   }
 
+  void _searchBand(_FeaturedBand item, AppState s) {
+    setState(() {
+      _selectedBand = item.band;
+      _ctrl.text = item.query;
+      _ctrl.selection = TextSelection.collapsed(offset: _ctrl.text.length);
+    });
+    s.search(item.query);
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = context.watch<AppState>();
     return SafeArea(
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Padding(
-            padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Text('Beranda', style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold)),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 12, 8),
+            child: Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Beranda',
+                    style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold),
+                  ),
+                ),
+                ValueListenableBuilder<bool>(
+                  valueListenable: IslandBridge.enabledNotifier,
+                  builder: (context, enabled, _) {
+                    return IconButton(
+                      tooltip: enabled
+                          ? 'Matikan Dynamic Island'
+                          : 'Nyalakan Dynamic Island',
+                      icon: Icon(
+                        enabled ? Icons.layers_rounded : Icons.layers_outlined,
+                        color: enabled
+                            ? Theme.of(context).colorScheme.primary
+                            : Colors.white70,
+                      ),
+                      onPressed: () async {
+                        final active = await IslandBridge.toggleFromUi();
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              active
+                                  ? 'Dynamic Island: ON'
+                                  : 'Dynamic Island: OFF',
+                            ),
+                          ),
+                        );
+                      },
+                    );
+                  },
+                ),
+              ],
             ),
           ),
           Padding(
@@ -92,18 +186,131 @@ class _SearchTabState extends State<SearchTab> {
             child: GlassBox(
               radius: 16,
               padding: const EdgeInsets.symmetric(horizontal: 14),
-              child: TextField(
-                controller: _ctrl,
-                textInputAction: TextInputAction.search,
-                onSubmitted: (v) => s.search(v),
-                decoration: const InputDecoration(
-                  border: InputBorder.none,
-                  hintText: 'Cari lagu di Spotify',
-                  icon: Icon(Icons.search),
-                ),
+              child: ValueListenableBuilder<TextEditingValue>(
+                valueListenable: _ctrl,
+                builder: (_, val, __) {
+                  return TextField(
+                    controller: _ctrl,
+                    textInputAction: TextInputAction.search,
+                    onSubmitted: (v) {
+                      setState(() => _selectedBand = null);
+                      s.search(v);
+                    },
+                    decoration: InputDecoration(
+                      border: InputBorder.none,
+                      hintText: 'Cari lagu atau album di Spotify',
+                      icon: const Icon(Icons.search),
+                      suffixIcon: val.text.isEmpty
+                          ? null
+                          : IconButton(
+                              icon: const Icon(Icons.close, size: 18),
+                              onPressed: () {
+                                _ctrl.clear();
+                                setState(() => _selectedBand = null);
+                              },
+                            ),
+                    ),
+                  );
+                },
               ),
             ),
           ),
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 14, 16, 8),
+            child: Text(
+              'Top Album & Band',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+          ),
+          SizedBox(
+            height: 108,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              itemCount: _topBands.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 10),
+              itemBuilder: (_, i) {
+                final item = _topBands[i];
+                final active = _selectedBand == item.band;
+                return GestureDetector(
+                  onTap: () => _searchBand(item, s),
+                  child: SizedBox(
+                    width: 156,
+                    child: GlassBox(
+                      radius: 18,
+                      padding: const EdgeInsets.all(10),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                width: 34,
+                                height: 34,
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(10),
+                                  gradient: LinearGradient(
+                                    colors: item.colors,
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                  ),
+                                  border: Border.all(
+                                    color: active
+                                        ? Theme.of(context).colorScheme.primary
+                                        : Colors.white24,
+                                    width: active ? 1.5 : 1,
+                                  ),
+                                ),
+                                child: const Icon(
+                                  Icons.album_rounded,
+                                  color: Colors.white,
+                                  size: 20,
+                                ),
+                              ),
+                              const Spacer(),
+                              Icon(
+                                Icons.play_circle_fill_rounded,
+                                size: 22,
+                                color: active
+                                    ? Theme.of(context).colorScheme.primary
+                                    : Colors.white70,
+                              ),
+                            ],
+                          ),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                item.band,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                item.album,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.white70,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 8),
           if (s.searching) const LinearProgressIndicator(),
           if (s.downloadingId != null)
             Padding(
@@ -113,22 +320,37 @@ class _SearchTabState extends State<SearchTab> {
               ),
             ),
           Expanded(
-            child: ListView.builder(
-              itemCount: s.results.length,
-              itemBuilder: (_, i) {
-                final song = s.results[i];
-                return ListTile(
-                  leading: ArtThumb(uri: song.artUri),
-                  title: Text(song.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-                  subtitle: Text(song.artist, maxLines: 1, overflow: TextOverflow.ellipsis),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.more_vert),
-                    onPressed: () => showSongActions(context, song),
+            child: s.results.isEmpty && !s.searching
+                ? const Center(
+                    child: Text(
+                      'Pilih band di atas atau cari lagu di Spotify',
+                      style: TextStyle(color: Colors.white60, fontSize: 13),
+                    ),
+                  )
+                : ListView.builder(
+                    itemCount: s.results.length,
+                    itemBuilder: (_, i) {
+                      final song = s.results[i];
+                      return ListTile(
+                        leading: ArtThumb(uri: song.artUri),
+                        title: Text(
+                          song.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        subtitle: Text(
+                          song.artist,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        trailing: IconButton(
+                          icon: const Icon(Icons.more_vert),
+                          onPressed: () => showSongActions(context, song),
+                        ),
+                        onTap: () => s.play(song),
+                      );
+                    },
                   ),
-                  onTap: () => s.play(song),
-                );
-              },
-            ),
           ),
         ],
       ),
@@ -164,10 +386,12 @@ class MiniPlayer extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(item.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-                        Text(item.artist ?? '',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontSize: 12, color: Colors.white70)),
+                        Text(
+                          item.artist ?? '',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 12, color: Colors.white70),
+                        ),
                       ],
                     ),
                   ),
@@ -250,7 +474,10 @@ Future<void> pickPlaylist(
           children: [
             const Padding(
               padding: EdgeInsets.all(8),
-              child: Text('Pilih playlist', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              child: Text(
+                'Pilih playlist',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
             ),
             for (final p in playlists)
               ListTile(

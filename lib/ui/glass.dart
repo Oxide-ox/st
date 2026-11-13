@@ -77,9 +77,11 @@ class AlbumBackdrop extends StatelessWidget {
   Widget build(BuildContext context) {
     ImageProvider? img;
     if (art != null) {
-      img = art!.scheme == 'file'
-          ? FileImage(File(art!.toFilePath()))
-          : NetworkImage(art!.toString());
+      if (art!.scheme == 'file') {
+        img = FileImage(File(art!.toFilePath()));
+      } else {
+        img = NetworkImage(art!.toString());
+      }
     }
 
     return Stack(

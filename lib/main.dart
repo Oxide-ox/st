@@ -1,11 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:audio_service/audio_service.dart';
+import 'services/island_bridge.dart';
 import 'services/music_api.dart';
 import 'services/music_handler.dart';
 import 'state/app_state.dart';
+import 'ui/dynamic_island_overlay.dart';
 import 'ui/home_shell.dart';
 import 'ui/login_page.dart';
+
+@pragma('vm:entry-point')
+void overlayMain() {
+  runDynamicIslandOverlay();
+}
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -13,12 +20,16 @@ Future<void> main() async {
   final handler = await AudioService.init(
     builder: () => MusicHandler(api),
     config: const AudioServiceConfig(
-      androidNotificationChannelId: 'com.example.glassmusic.playback',
+      androidNotificationChannelId: 'com.singo.tune.playback',
       androidNotificationChannelName: 'Pemutar musik',
+      androidNotificationIcon: 'drawable/ic_stat_music',
       androidNotificationOngoing: true,
-      androidStopForegroundOnPause: false,
+      androidStopForegroundOnPause: true,
+      artDownscaleWidth: 512,
+      artDownscaleHeight: 512,
     ),
   );
+  await IslandBridge(handler).init();
   final state = AppState(api: api, handler: handler);
   await state.init();
   runApp(ChangeNotifierProvider.value(value: state, child: const GlassMusicApp()));
