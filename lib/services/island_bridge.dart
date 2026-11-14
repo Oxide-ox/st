@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -23,6 +24,12 @@ class IslandBridge {
   int _lastPosMs = 0;
   int _lastSentPosMs = -2000;
   bool _enabled = false;
+
+  static double get _dpr {
+    final views = ui.PlatformDispatcher.instance.views;
+    if (views.isEmpty) return 2.0;
+    return views.first.devicePixelRatio.clamp(1.5, 4.0);
+  }
 
   Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
@@ -120,9 +127,7 @@ class IslandBridge {
           'art': _lastItem?.artUri?.toString(),
           'playing': _lastPlaying,
         });
-      } catch (_) {
-        // Aman diabaikan jika channel native custom_notif belum dipasang
-      }
+      } catch (_) {}
     }
 
     if (!await FlutterOverlayWindow.isActive()) return;
@@ -145,20 +150,19 @@ class IslandBridge {
 
   Future<void> _show() async {
     try {
+      final dpr = _dpr;
       await FlutterOverlayWindow.showOverlay(
         enableDrag: true,
         overlayTitle: 'Singo Tune',
         overlayContent: _lastItem?.title ?? 'Dynamic Island aktif',
         flag: OverlayFlag.defaultFlag,
         alignment: OverlayAlignment.topCenter,
-        width: 250,
-        height: 54,
+        width: (245 * dpr).round(),
+        height: (68 * dpr).round(),
       );
-      await Future<void>.delayed(const Duration(milliseconds: 250));
+      await Future<void>.delayed(const Duration(milliseconds: 300));
       await _pushState(updateCustomNotif: false);
-    } catch (_) {
-      // Mencegah crash ForegroundServiceStartNotAllowedException di Android 12 saat app di background
-    }
+    } catch (_) {}
   }
 
   static Future<bool> setEnabled(bool enabled) async {
