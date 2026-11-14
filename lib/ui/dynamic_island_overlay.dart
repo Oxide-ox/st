@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_overlay_window/flutter_overlay_window.dart';
 
 void runDynamicIslandOverlay() {
+  WidgetsFlutterBinding.ensureInitialized();
   runApp(
     const MaterialApp(
       debugShowCheckedModeBanner: false,
@@ -31,6 +33,12 @@ class _DynamicIslandOverlayAppState extends State<DynamicIslandOverlayApp> {
 
   StreamSubscription<dynamic>? _sub;
   Timer? _ticker;
+
+  double get _dpr {
+    final views = ui.PlatformDispatcher.instance.views;
+    if (views.isEmpty) return 2.0;
+    return views.first.devicePixelRatio.clamp(1.5, 4.0);
+  }
 
   @override
   void initState() {
@@ -66,12 +74,21 @@ class _DynamicIslandOverlayAppState extends State<DynamicIslandOverlayApp> {
   }
 
   Future<void> _setExpanded(bool expand) async {
+    final dpr = _dpr;
     if (expand) {
-      await FlutterOverlayWindow.resizeOverlay(336, 178, true);
+      await FlutterOverlayWindow.resizeOverlay(
+        (332 * dpr).round(),
+        (194 * dpr).round(),
+        true,
+      );
       if (mounted) setState(() => _expanded = true);
     } else {
       setState(() => _expanded = false);
-      await FlutterOverlayWindow.resizeOverlay(250, 54, true);
+      await FlutterOverlayWindow.resizeOverlay(
+        (245 * dpr).round(),
+        (68 * dpr).round(),
+        true,
+      );
     }
   }
 
@@ -119,48 +136,44 @@ class _DynamicIslandOverlayAppState extends State<DynamicIslandOverlayApp> {
   Widget build(BuildContext context) {
     return MediaQuery(
       data: MediaQuery.of(context).copyWith(textScaler: const TextScaler.linear(1.0)),
-      child: Scaffold(
-        backgroundColor: Colors.transparent,
-        body: ClipRRect(
-          borderRadius: BorderRadius.circular(26),
-          child: Container(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(26),
-              border: Border.all(
-                color: Colors.white.withValues(alpha: 0.2),
-                width: 1,
+      child: Material(
+        color: Colors.transparent,
+        child: Padding(
+          padding: const EdgeInsets.only(top: 12),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(26),
+            child: Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(26),
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: 0.25),
+                  width: 1,
+                ),
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF26124A), Color(0xFF0A0A0C)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
               ),
-              gradient: const LinearGradient(
-                colors: [Color(0xFF26124A), Color(0xFF0A0A0C)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-            ),
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                if (_art != null && _art!.isNotEmpty) _buildArtImage(),
-                Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        Colors.black.withValues(alpha: 0.45),
-                        Colors.black.withValues(alpha: 0.72),
-                      ],
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  if (_art != null && _art!.isNotEmpty) _buildArtImage(),
+                  Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.black.withValues(alpha: 0.45),
+                          Colors.black.withValues(alpha: 0.72),
+                        ],
+                      ),
                     ),
                   ),
-                ),
-                LayoutBuilder(
-                  builder: (context, constraints) {
-                    if (_expanded && constraints.maxHeight >= 135) {
-                      return _buildExpandedCard();
-                    }
-                    return _buildCompactPill();
-                  },
-                ),
-              ],
+                  if (_expanded) _buildExpandedCard() else _buildCompactPill(),
+                ],
+              ),
             ),
           ),
         ),
