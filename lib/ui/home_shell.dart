@@ -347,7 +347,7 @@ class _SearchTabState extends State<SearchTab> {
                           icon: const Icon(Icons.more_vert),
                           onPressed: () => showSongActions(context, song),
                         ),
-                        onTap: () => s.play(song),
+                        onTap: () => s.play(song, queue: s.results),
                       );
                     },
                   ),
