@@ -1,12 +1,22 @@
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/playlist.dart';
 import '../models/song.dart';
 import '../services/download_service.dart';
 import '../services/library_store.dart';
 import '../services/music_api.dart';
 import '../services/music_handler.dart';
+
+class LyricLine {
+  const LyricLine({required this.time, required this.text});
+
+  final Duration time;
+  final String text;
+}
 
 class AppState extends ChangeNotifier {
   AppState({required this.api, required this.handler});
@@ -26,16 +36,49 @@ class AppState extends ChangeNotifier {
   String? downloadingId;
   double downloadProgress = 0;
 
-  bool get loggedIn => userEmail != null;
+  bool isLoadingLyrics = false;
+  List<LyricLine> syncedLyrics = [];
+  String? lyricErrorMessage;
+  String? _lastLyricKey;
+
+  User? get _supabaseUser {
+    try {
+      return Supabase.instance.client.auth.currentUser;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  bool get loggedIn => _supabaseUser != null || userEmail != null;
 
   Future<void> init() async {
     _prefs = await SharedPreferences.getInstance();
     liquidGlass = _prefs.getBool('liquidGlass') ?? true;
-    userEmail = _prefs.getString('userEmail');
+    userEmail = _supabaseUser?.email ?? _prefs.getString('userEmail');
     playlists = await _store.load();
     if (playlists.isEmpty) {
       playlists = [Playlist(id: _newId(), name: 'Favorit')];
       await _store.save(playlists);
+    }
+    _listenTrackForLyrics();
+    notifyListeners();
+  }
+
+  void _listenTrackForLyrics() {
+    handler.mediaItem.listen((item) {
+      if (item == null) return;
+      final key = '${item.title}|${item.artist ?? ''}';
+      if (_lastLyricKey == key) return;
+      _lastLyricKey = key;
+      fetchSyncedLyrics(item.title, item.artist ?? '');
+    });
+  }
+
+  void refreshAuth() {
+    final email = _supabaseUser?.email;
+    if (email != null) {
+      userEmail = email;
+      _prefs.setString('userEmail', email);
     }
     notifyListeners();
   }
@@ -53,6 +96,9 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> signOut() async {
+    try {
+      await Supabase.instance.client.auth.signOut();
+    } catch (_) {}
     await _google.signOut();
     userEmail = null;
     await _prefs.remove('userEmail');
@@ -79,12 +125,88 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> play(Song song) async {
+  Future<void> play(Song song, {List<Song>? queue}) async {
     try {
-      await handler.playSong(song);
+      await handler.playSong(song, contextQueue: queue);
     } catch (e) {
       debugPrint('play error: $e');
     }
+  }
+
+  Future<void> fetchSyncedLyrics(String title, String artist) async {
+    isLoadingLyrics = true;
+    lyricErrorMessage = null;
+    syncedLyrics = [];
+    notifyListeners();
+
+    try {
+      final queryTitle = Uri.encodeComponent(title);
+      final queryArtist = Uri.encodeComponent(artist);
+
+      final url = Uri.parse(
+        "https://lrclib.net/api/get?track_name=$queryTitle&artist_name=$queryArtist",
+      );
+      final response = await http.get(url);
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final String? rawSyncedLyrics = data['syncedLyrics'];
+
+        if (rawSyncedLyrics != null && rawSyncedLyrics.isNotEmpty) {
+          syncedLyrics = _parseLrc(rawSyncedLyrics);
+        } else {
+          lyricErrorMessage = "Lirik synced tidak tersedia.";
+        }
+      } else {
+        final searchUrl = Uri.parse(
+          "https://lrclib.net/api/search?q=$queryTitle $queryArtist",
+        );
+        final searchRes = await http.get(searchUrl);
+        if (searchRes.statusCode == 200) {
+          final List searchData = json.decode(searchRes.body);
+          if (searchData.isNotEmpty && searchData[0]['syncedLyrics'] != null) {
+            syncedLyrics = _parseLrc(searchData[0]['syncedLyrics']);
+          } else {
+            lyricErrorMessage = "Lirik tidak ditemukan.";
+          }
+        } else {
+          lyricErrorMessage = "Lirik tidak ditemukan.";
+        }
+      }
+    } catch (e) {
+      lyricErrorMessage = "Gagal memuat lirik.";
+      debugPrint("Error fetching synced lyrics: $e");
+    }
+
+    isLoadingLyrics = false;
+    notifyListeners();
+  }
+
+  List<LyricLine> _parseLrc(String lrcString) {
+    final lines = lrcString.split('\n');
+    final List<LyricLine> parsedList = [];
+    final regExp = RegExp(r'\[(\d+):(\d+(?:\.\d+)?)\](.*)');
+
+    for (var line in lines) {
+      final match = regExp.firstMatch(line.trim());
+      if (match != null) {
+        final minutes = int.parse(match.group(1)!);
+        final seconds = double.parse(match.group(2)!);
+        final text = match.group(3)!.trim();
+
+        if (text.isNotEmpty) {
+          final duration = Duration(
+            minutes: minutes,
+            seconds: seconds.truncate(),
+            milliseconds: ((seconds - seconds.truncate()) * 1000).round(),
+          );
+          parsedList.add(LyricLine(time: duration, text: text));
+        }
+      }
+    }
+
+    parsedList.sort((a, b) => a.time.compareTo(b.time));
+    return parsedList;
   }
 
   Future<void> createPlaylist(String name) async {
