@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:audio_service/audio_service.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'services/island_bridge.dart';
 import 'services/music_api.dart';
 import 'services/music_handler.dart';
@@ -16,6 +17,12 @@ void overlayMain() {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  await Supabase.initialize(
+    url: 'https://rraiveakyaeymoupviwy.supabase.co',
+    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJyYWl2ZWFreWFleW1vdXB2aXd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ4Mzk1MTAsImV4cCI6MjExMDQxNTUxMH0.hFbicSuwlDl9esmPdZPjZrlujIhg2oOJCSksfvCCRhw',
+  );
+
   final api = MusicApi();
   final handler = await AudioService.init(
     builder: () => MusicHandler(api),
