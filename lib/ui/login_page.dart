@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../services/supabase_auth_service.dart';
 import '../state/app_state.dart';
 import 'glass.dart';
 import 'home_shell.dart';
@@ -32,20 +34,26 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
-  void _submitLogin() {
-    if (!_formKey.currentState!.validate()) return;
-    _goToHome();
-  }
-
-  Future<void> _signInGoogle() async {
-    if (_loading) return;
+  Future<void> _submitLogin() async {
+    if (_loading || !_formKey.currentState!.validate()) return;
     setState(() => _loading = true);
     try {
-      await context.read<AppState>().signInGoogle();
+      await SupabaseAuthService.signInOrRegisterWithEmail(
+        identifier: _emailController.text,
+        password: _passwordController.text,
+      );
+      if (!mounted) return;
+      context.read<AppState>().refreshAuth();
+      _goToHome();
+    } on AuthException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.message)),
+      );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Gagal login Google: $e')),
+        SnackBar(content: Text('Gagal masuk: $e')),
       );
     } finally {
       if (mounted) {
@@ -123,7 +131,7 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                       const SizedBox(height: 6),
                       const Text(
-                        'Masuk untuk mulai memutar musik',
+                        'Masuk atau otomatis buat akun baru',
                         style: TextStyle(color: Colors.white70, fontSize: 14),
                       ),
                       const SizedBox(height: 28),
@@ -141,12 +149,12 @@ class _LoginPageState extends State<LoginPage> {
                                 textInputAction: TextInputAction.next,
                                 style: const TextStyle(color: Colors.white),
                                 decoration: _inputDecoration(
-                                  label: 'Email atau Username',
+                                  label: 'Gmail atau Username',
                                   icon: Icons.person_outline,
                                 ),
                                 validator: (v) {
                                   if (v == null || v.trim().isEmpty) {
-                                    return 'Email atau username wajib diisi';
+                                    return 'Gmail atau username wajib diisi';
                                   }
                                   return null;
                                 },
@@ -159,7 +167,7 @@ class _LoginPageState extends State<LoginPage> {
                                 onFieldSubmitted: (_) => _submitLogin(),
                                 style: const TextStyle(color: Colors.white),
                                 decoration: _inputDecoration(
-                                  label: 'Password',
+                                  label: 'Password (min. 6 karakter)',
                                   icon: Icons.lock_outline,
                                   suffixIcon: IconButton(
                                     onPressed: () {
@@ -176,8 +184,8 @@ class _LoginPageState extends State<LoginPage> {
                                   ),
                                 ),
                                 validator: (v) {
-                                  if (v == null || v.isEmpty) {
-                                    return 'Password wajib diisi';
+                                  if (v == null || v.length < 6) {
+                                    return 'Password minimal 6 karakter';
                                   }
                                   return null;
                                 },
@@ -192,58 +200,22 @@ class _LoginPageState extends State<LoginPage> {
                                       borderRadius: BorderRadius.circular(14),
                                     ),
                                   ),
-                                  child: const Text(
-                                    'Masuk',
-                                    style: TextStyle(
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(height: 18),
-                              const Row(
-                                children: [
-                                  Expanded(child: Divider(color: Colors.white24)),
-                                  Padding(
-                                    padding: EdgeInsets.symmetric(horizontal: 12),
-                                    child: Text(
-                                      'atau',
-                                      style: TextStyle(
-                                        color: Colors.white54,
-                                        fontSize: 13,
-                                      ),
-                                    ),
-                                  ),
-                                  Expanded(child: Divider(color: Colors.white24)),
-                                ],
-                              ),
-                              const SizedBox(height: 18),
-                              SizedBox(
-                                height: 48,
-                                child: OutlinedButton.icon(
-                                  onPressed: _loading ? null : _signInGoogle,
-                                  style: OutlinedButton.styleFrom(
-                                    foregroundColor: Colors.white,
-                                    side: const BorderSide(color: Colors.white24),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(14),
-                                    ),
-                                  ),
-                                  icon: _loading
+                                  child: _loading
                                       ? const SizedBox(
-                                          width: 18,
-                                          height: 18,
+                                          width: 20,
+                                          height: 20,
                                           child: CircularProgressIndicator(
                                             strokeWidth: 2,
+                                            color: Colors.white,
                                           ),
                                         )
-                                      : const Icon(Icons.login),
-                                  label: Text(
-                                    _loading
-                                        ? 'Menghubungkan...'
-                                        : 'Login dengan Google',
-                                  ),
+                                      : const Text(
+                                          'Masuk',
+                                          style: TextStyle(
+                                            fontSize: 15,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
                                 ),
                               ),
                             ],
@@ -254,7 +226,7 @@ class _LoginPageState extends State<LoginPage> {
                       TextButton(
                         onPressed: _loading ? null : _goToHome,
                         child: const Text(
-                          'Masuk tanpa akun',
+                          'Masuk tanpa login',
                           style: TextStyle(color: Colors.white70),
                         ),
                       ),
