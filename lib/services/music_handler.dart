@@ -9,8 +9,8 @@ class MusicHandler extends BaseAudioHandler {
     _player.playbackEventStream.listen((_) => _broadcast());
     _player.playerStateStream.listen((state) {
       _broadcast();
-      if (state.processingState == ProcessingState.completed && _songs.length > 1) {
-        skipToNext();
+      if (state.processingState == ProcessingState.completed) {
+        _onTrackCompleted();
       }
     });
     _player.durationStream.listen((dur) {
@@ -26,8 +26,31 @@ class MusicHandler extends BaseAudioHandler {
   final List<Song> _songs = [];
   int _index = -1;
   bool _shuffle = false;
+  bool _autoNext = true;
+  bool _handlingComplete = false;
 
-  Future<void> playSong(Song song) async {
+  bool get autoNext => _autoNext;
+
+  Song? get currentSong =>
+      (_index >= 0 && _index < _songs.length) ? _songs[_index] : null;
+
+  Future<void> playQueue(List<Song> songs, {int initialIndex = 0}) async {
+    if (songs.isEmpty) return;
+    _songs
+      ..clear()
+      ..addAll(songs);
+    _index = initialIndex.clamp(0, _songs.length - 1);
+    queue.add(_songs.map(_toMediaItem).toList());
+    await _playAtIndex(_index);
+  }
+
+  Future<void> playSong(Song song, {List<Song>? contextQueue}) async {
+    if (contextQueue != null && contextQueue.isNotEmpty) {
+      final idx = contextQueue.indexWhere((s) => s.id == song.id);
+      await playQueue(contextQueue, initialIndex: idx >= 0 ? idx : 0);
+      return;
+    }
+
     final existingIdx = _songs.indexWhere((s) => s.id == song.id);
     if (existingIdx >= 0) {
       _songs[existingIdx] = song;
@@ -37,19 +60,51 @@ class MusicHandler extends BaseAudioHandler {
       _index = _songs.length - 1;
     }
 
-    final tag = _toMediaItem(song);
     queue.add(_songs.map(_toMediaItem).toList());
+    await _playAtIndex(_index);
+  }
+
+  Future<void> _onTrackCompleted() async {
+    if (_handlingComplete || !_autoNext || _songs.isEmpty) return;
+    if (_songs.length == 1) {
+      await _player.seek(Duration.zero);
+      await _player.pause();
+      return;
+    }
+
+    _handlingComplete = true;
+    try {
+      await skipToNext();
+    } catch (_) {
+    } finally {
+      _handlingComplete = false;
+    }
+  }
+
+  Future<void> _playAtIndex(int targetIndex, {int attempt = 0}) async {
+    if (_songs.isEmpty) return;
+    _index = targetIndex % _songs.length;
+    final song = _songs[_index];
+    final tag = _toMediaItem(song);
     mediaItem.add(tag);
 
-    final source = song.isDownloaded
-        ? AudioSource.file(song.localPath!, tag: tag)
-        : AudioSource.uri(Uri.parse(await _api.resolveMp3(song.id)), tag: tag);
+    try {
+      final source = song.isDownloaded
+          ? AudioSource.file(song.localPath!, tag: tag)
+          : AudioSource.uri(Uri.parse(await _api.resolveMp3(song.id)), tag: tag);
 
-    final dur = await _player.setAudioSource(source);
-    if (dur != null) {
-      mediaItem.add(tag.copyWith(duration: dur));
+      final dur = await _player.setAudioSource(source);
+      if (dur != null) {
+        mediaItem.add(tag.copyWith(duration: dur));
+      }
+      await _player.play();
+    } catch (_) {
+      if (attempt < 2 && _songs.length > 1) {
+        await _playAtIndex((_index + 1) % _songs.length, attempt: attempt + 1);
+      } else if (attempt == 0) {
+        rethrow;
+      }
     }
-    await _player.play();
   }
 
   MediaItem _toMediaItem(Song song) => MediaItem(
@@ -78,11 +133,10 @@ class MusicHandler extends BaseAudioHandler {
       while (nextIdx == _index) {
         nextIdx = rnd.nextInt(_songs.length);
       }
-      await playSong(_songs[nextIdx]);
+      await _playAtIndex(nextIdx);
       return;
     }
-    final nextIdx = (_index + 1) % _songs.length;
-    await playSong(_songs[nextIdx]);
+    await _playAtIndex((_index + 1) % _songs.length);
   }
 
   @override
@@ -92,8 +146,7 @@ class MusicHandler extends BaseAudioHandler {
       return;
     }
     if (_songs.isEmpty) return;
-    final prevIdx = (_index - 1 + _songs.length) % _songs.length;
-    await playSong(_songs[prevIdx]);
+    await _playAtIndex((_index - 1 + _songs.length) % _songs.length);
   }
 
   @override
@@ -101,6 +154,9 @@ class MusicHandler extends BaseAudioHandler {
     if (name == 'shuffle') {
       _shuffle = !_shuffle;
       await _player.setShuffleModeEnabled(_shuffle);
+      _broadcast();
+    } else if (name == 'auto_next') {
+      _autoNext = !_autoNext;
       _broadcast();
     }
     return super.customAction(name, extras);
