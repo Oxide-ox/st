@@ -10,53 +10,6 @@ import 'library_pages.dart';
 import 'now_playing.dart';
 import 'settings_tab.dart';
 
-class _FeaturedBand {
-  const _FeaturedBand({
-    required this.band,
-    required this.album,
-    required this.query,
-    required this.colors,
-  });
-
-  final String band;
-  final String album;
-  final String query;
-  final List<Color> colors;
-}
-
-const List<_FeaturedBand> _topBands = [
-  _FeaturedBand(
-    band: 'Stand Here Alone',
-    album: 'Melawan Dunia',
-    query: 'Stand Here Alone',
-    colors: [Color(0xFF7F1D1D), Color(0xFF1F2937)],
-  ),
-  _FeaturedBand(
-    band: 'Threesixty',
-    album: 'Mimpi dan Harapan',
-    query: 'Threesixty',
-    colors: [Color(0xFF1E3A8A), Color(0xFF0F172A)],
-  ),
-  _FeaturedBand(
-    band: 'Denny Caknan',
-    album: 'Kalih Welasku',
-    query: 'Denny Caknan',
-    colors: [Color(0xFF78350F), Color(0xFF1C1917)],
-  ),
-  _FeaturedBand(
-    band: 'for Revenge',
-    album: 'Perayaan Patah Hati - Babak 1',
-    query: 'for Revenge',
-    colors: [Color(0xFF4C1D95), Color(0xFF09090B)],
-  ),
-  _FeaturedBand(
-    band: 'Last Child',
-    album: 'Our Biggest Thing Ever',
-    query: 'Last Child',
-    colors: [Color(0xFF064E3B), Color(0xFF111827)],
-  ),
-];
-
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
 
@@ -95,7 +48,7 @@ class _HomeShellState extends State<HomeShell> {
             selectedIndex: _tab,
             onDestinationSelected: (i) => setState(() => _tab = i),
             destinations: const [
-              NavigationDestination(icon: Icon(Icons.search), label: 'Cari'),
+              NavigationDestination(icon: Icon(Icons.home_rounded), label: 'Beranda'),
               NavigationDestination(icon: Icon(Icons.library_music), label: 'Playlist'),
               NavigationDestination(icon: Icon(Icons.settings), label: 'Setting'),
             ],
@@ -115,7 +68,6 @@ class SearchTab extends StatefulWidget {
 
 class _SearchTabState extends State<SearchTab> {
   final _ctrl = TextEditingController();
-  String? _selectedBand;
 
   @override
   void dispose() {
@@ -123,13 +75,12 @@ class _SearchTabState extends State<SearchTab> {
     super.dispose();
   }
 
-  void _searchBand(_FeaturedBand item, AppState s) {
-    setState(() {
-      _selectedBand = item.band;
-      _ctrl.text = item.query;
-      _ctrl.selection = TextSelection.collapsed(offset: _ctrl.text.length);
-    });
-    s.search(item.query);
+  String _greeting() {
+    final hour = DateTime.now().hour;
+    if (hour < 11) return 'Selamat pagi';
+    if (hour < 15) return 'Selamat siang';
+    if (hour < 18) return 'Selamat sore';
+    return 'Selamat malam';
   }
 
   @override
@@ -143,11 +94,23 @@ class _SearchTabState extends State<SearchTab> {
             padding: const EdgeInsets.fromLTRB(16, 14, 12, 8),
             child: Row(
               children: [
-                const Expanded(
+                Expanded(
                   child: Text(
-                    'Beranda',
-                    style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold),
+                    _greeting(),
+                    style: const TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
+                ),
+                IconButton(
+                  tooltip: 'Perbarui rekomendasi',
+                  icon: const Icon(
+                    Icons.auto_awesome_rounded,
+                    color: Colors.white70,
+                    size: 21,
+                  ),
+                  onPressed: () => s.loadRecommendations(forceRefresh: true),
                 ),
                 ValueListenableBuilder<bool>(
                   valueListenable: IslandBridge.enabledNotifier,
@@ -192,122 +155,24 @@ class _SearchTabState extends State<SearchTab> {
                   return TextField(
                     controller: _ctrl,
                     textInputAction: TextInputAction.search,
-                    onSubmitted: (v) {
-                      setState(() => _selectedBand = null);
-                      s.search(v);
-                    },
+                    onSubmitted: (v) => s.search(v),
                     decoration: InputDecoration(
                       border: InputBorder.none,
-                      hintText: 'Cari lagu atau album di Spotify',
+                      hintText: 'Cari lagu, artis, atau album...',
                       icon: const Icon(Icons.search),
-                      suffixIcon: val.text.isEmpty
+                      suffixIcon: val.text.isEmpty && s.results.isEmpty
                           ? null
                           : IconButton(
                               icon: const Icon(Icons.close, size: 18),
                               onPressed: () {
                                 _ctrl.clear();
-                                setState(() => _selectedBand = null);
+                                s.clearResults();
                               },
                             ),
                     ),
                   );
                 },
               ),
-            ),
-          ),
-          const Padding(
-            padding: EdgeInsets.fromLTRB(16, 14, 16, 8),
-            child: Text(
-              'Top Album & Band',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-          ),
-          SizedBox(
-            height: 108,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              itemCount: _topBands.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 10),
-              itemBuilder: (_, i) {
-                final item = _topBands[i];
-                final active = _selectedBand == item.band;
-                return GestureDetector(
-                  onTap: () => _searchBand(item, s),
-                  child: SizedBox(
-                    width: 156,
-                    child: GlassBox(
-                      radius: 18,
-                      padding: const EdgeInsets.all(10),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Row(
-                            children: [
-                              Container(
-                                width: 34,
-                                height: 34,
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(10),
-                                  gradient: LinearGradient(
-                                    colors: item.colors,
-                                    begin: Alignment.topLeft,
-                                    end: Alignment.bottomRight,
-                                  ),
-                                  border: Border.all(
-                                    color: active
-                                        ? Theme.of(context).colorScheme.primary
-                                        : Colors.white24,
-                                    width: active ? 1.5 : 1,
-                                  ),
-                                ),
-                                child: const Icon(
-                                  Icons.album_rounded,
-                                  color: Colors.white,
-                                  size: 20,
-                                ),
-                              ),
-                              const Spacer(),
-                              Icon(
-                                Icons.play_circle_fill_rounded,
-                                size: 22,
-                                color: active
-                                    ? Theme.of(context).colorScheme.primary
-                                    : Colors.white70,
-                              ),
-                            ],
-                          ),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                item.band,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                item.album,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 11,
-                                  color: Colors.white70,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                );
-              },
             ),
           ),
           const SizedBox(height: 8),
@@ -321,12 +186,7 @@ class _SearchTabState extends State<SearchTab> {
             ),
           Expanded(
             child: s.results.isEmpty && !s.searching
-                ? const Center(
-                    child: Text(
-                      'Pilih band di atas atau cari lagu di Spotify',
-                      style: TextStyle(color: Colors.white60, fontSize: 13),
-                    ),
-                  )
+                ? _SpotifyHomeDashboard(state: s)
                 : ListView.builder(
                     itemCount: s.results.length,
                     itemBuilder: (_, i) {
@@ -353,6 +213,241 @@ class _SearchTabState extends State<SearchTab> {
                   ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _SpotifyHomeDashboard extends StatelessWidget {
+  const _SpotifyHomeDashboard({required this.state});
+
+  final AppState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final quickSongs = state.quickGridSongs;
+    final shelves = state.dashboardFilter == 'Mix'
+        ? state.spotifyShelves.where((s) => s.title.contains('Mix')).toList()
+        : state.spotifyShelves;
+
+    return RefreshIndicator(
+      color: const Color(0xFF1DB954),
+      onRefresh: () => state.loadRecommendations(forceRefresh: true),
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 110),
+        children: [
+          Row(
+            children: ['Semua', 'Musik', 'Mix'].map((label) {
+              final selected = state.dashboardFilter == label;
+              return Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: ChoiceChip(
+                  label: Text(label),
+                  selected: selected,
+                  showCheckmark: false,
+                  labelStyle: TextStyle(
+                    color: selected ? Colors.black : Colors.white,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  selectedColor: const Color(0xFF1DB954),
+                  backgroundColor: Colors.white.withValues(alpha: 0.1),
+                  side: BorderSide.none,
+                  shape: const StadiumBorder(),
+                  onSelected: (_) => state.setDashboardFilter(label),
+                ),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 14),
+          if (quickSongs.isNotEmpty && state.dashboardFilter != 'Mix') ...[
+            GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: quickSongs.length,
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                mainAxisSpacing: 8,
+                crossAxisSpacing: 8,
+                mainAxisExtent: 56,
+              ),
+              itemBuilder: (_, i) {
+                final song = quickSongs[i];
+                return InkWell(
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: () => state.play(song, queue: quickSongs),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.09),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: Row(
+                      children: [
+                        ArtThumb(uri: song.artUri, size: 56),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: Text(
+                              song.title,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                height: 1.2,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 22),
+          ],
+          if (state.recentSongs.isNotEmpty && state.dashboardFilter == 'Semua') ...[
+            const Text(
+              'Baru saja diputar',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              height: 156,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: state.recentSongs.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 12),
+                itemBuilder: (_, i) {
+                  final song = state.recentSongs[i];
+                  return _SpotifySquareCard(
+                    song: song,
+                    size: 112,
+                    onTap: () => state.play(song, queue: state.recentSongs),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 22),
+          ],
+          if (state.loadingRecommendations)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 40),
+              child: Center(
+                child: CircularProgressIndicator(color: Color(0xFF1DB954)),
+              ),
+            )
+          else
+            ...shelves.map(
+              (shelf) => Padding(
+                padding: const EdgeInsets.only(bottom: 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (shelf.subtitle != null)
+                      Text(
+                        shelf.subtitle!.toUpperCase(),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white54,
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.8,
+                        ),
+                      ),
+                    Text(
+                      shelf.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      height: 186,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: shelf.songs.length,
+                        separatorBuilder: (_, __) => const SizedBox(width: 14),
+                        itemBuilder: (_, i) {
+                          final song = shelf.songs[i];
+                          return _SpotifySquareCard(
+                            song: song,
+                            size: 138,
+                            onTap: () => state.play(song, queue: shelf.songs),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SpotifySquareCard extends StatelessWidget {
+  const _SpotifySquareCard({
+    required this.song,
+    required this.size,
+    required this.onTap,
+  });
+
+  final Song song;
+  final double size;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: SizedBox(
+        width: size,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: ArtThumb(uri: song.artUri, size: size),
+            ),
+            const SizedBox(height: 7),
+            Text(
+              song.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              song.artist,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Colors.white60,
+                fontSize: 11.5,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
