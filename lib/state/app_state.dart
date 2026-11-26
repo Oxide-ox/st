@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
-import 'package:google_sign_in/google_sign_in.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -18,6 +17,18 @@ class LyricLine {
   final String text;
 }
 
+class SpotifyShelf {
+  const SpotifyShelf({
+    required this.title,
+    this.subtitle,
+    required this.songs,
+  });
+
+  final String title;
+  final String? subtitle;
+  final List<Song> songs;
+}
+
 class AppState extends ChangeNotifier {
   AppState({required this.api, required this.handler});
 
@@ -25,7 +36,6 @@ class AppState extends ChangeNotifier {
   final MusicHandler handler;
   final _store = LibraryStore();
   final _dl = DownloadService();
-  final _google = GoogleSignIn(scopes: ['email']);
   late SharedPreferences _prefs;
 
   bool liquidGlass = true;
@@ -41,6 +51,13 @@ class AppState extends ChangeNotifier {
   String? lyricErrorMessage;
   String? _lastLyricKey;
 
+  Map<String, int> _artistScores = {};
+  List<String> _searchHistory = [];
+  List<Song> recentSongs = [];
+  List<SpotifyShelf> spotifyShelves = [];
+  String dashboardFilter = 'Semua';
+  bool loadingRecommendations = false;
+
   User? get _supabaseUser {
     try {
       return Supabase.instance.client.auth.currentUser;
@@ -51,6 +68,19 @@ class AppState extends ChangeNotifier {
 
   bool get loggedIn => _supabaseUser != null || userEmail != null;
 
+  List<Song> get quickGridSongs {
+    final map = <String, Song>{};
+    for (final s in recentSongs) {
+      map[s.id] = s;
+    }
+    for (final shelf in spotifyShelves) {
+      for (final s in shelf.songs) {
+        map.putIfAbsent(s.id, () => s);
+      }
+    }
+    return map.values.take(6).toList();
+  }
+
   Future<void> init() async {
     _prefs = await SharedPreferences.getInstance();
     liquidGlass = _prefs.getBool('liquidGlass') ?? true;
@@ -60,8 +90,10 @@ class AppState extends ChangeNotifier {
       playlists = [Playlist(id: _newId(), name: 'Favorit')];
       await _store.save(playlists);
     }
+    await _loadTasteProfile();
     _listenTrackForLyrics();
     notifyListeners();
+    loadRecommendations();
   }
 
   void _listenTrackForLyrics() {
@@ -80,26 +112,14 @@ class AppState extends ChangeNotifier {
       userEmail = email;
       _prefs.setString('userEmail', email);
     }
+    _loadTasteProfile().then((_) => loadRecommendations(forceRefresh: true));
     notifyListeners();
-  }
-
-  Future<void> signInGoogle() async {
-    try {
-      final acc = await _google.signIn();
-      if (acc == null) return;
-      userEmail = acc.email;
-      await _prefs.setString('userEmail', acc.email);
-      notifyListeners();
-    } catch (e) {
-      debugPrint('google sign-in error: $e');
-    }
   }
 
   Future<void> signOut() async {
     try {
       await Supabase.instance.client.auth.signOut();
     } catch (_) {}
-    await _google.signOut();
     userEmail = null;
     await _prefs.remove('userEmail');
     notifyListeners();
@@ -111,12 +131,210 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setDashboardFilter(String filter) {
+    dashboardFilter = filter;
+    notifyListeners();
+  }
+
+  Future<void> _loadTasteProfile() async {
+    try {
+      final rawScores = _prefs.getString('taste_scores');
+      if (rawScores != null) {
+        final decoded = json.decode(rawScores) as Map<String, dynamic>;
+        _artistScores = decoded.map((k, v) => MapEntry(k, (v as num).toInt()));
+      }
+    } catch (_) {}
+
+    _searchHistory = _prefs.getStringList('taste_searches') ?? [];
+
+    try {
+      final rawRecent = _prefs.getString('taste_recent');
+      if (rawRecent != null) {
+        final list = json.decode(rawRecent) as List;
+        recentSongs = list
+            .map((e) => _songFromCache(e as Map<String, dynamic>))
+            .toList();
+      }
+    } catch (_) {}
+
+    final uid = _supabaseUser?.id;
+    if (uid != null) {
+      try {
+        final row = await Supabase.instance.client
+            .from('users')
+            .select('taste_profile')
+            .eq('id', uid)
+            .maybeSingle();
+        final remote = row?['taste_profile'];
+        if (remote is Map && remote['scores'] is Map) {
+          final scores = remote['scores'] as Map<String, dynamic>;
+          scores.forEach((k, v) {
+            final localVal = _artistScores[k] ?? 0;
+            final remoteVal = (v as num).toInt();
+            if (remoteVal > localVal) _artistScores[k] = remoteVal;
+          });
+        }
+      } catch (_) {}
+    }
+  }
+
+  Map<String, dynamic> _songToCache(Song s) => {
+        'id': s.id,
+        'title': s.title,
+        'artist': s.artist,
+        'album': s.album,
+        'artUri': s.artUri?.toString(),
+        'localPath': s.localPath,
+      };
+
+  Song _songFromCache(Map<String, dynamic> m) => Song(
+        id: (m['id'] ?? '').toString(),
+        title: (m['title'] ?? '').toString(),
+        artist: (m['artist'] ?? '').toString(),
+        album: m['album']?.toString(),
+        artUri: m['artUri'] != null ? Uri.tryParse(m['artUri'].toString()) : null,
+        localPath: m['localPath']?.toString(),
+      );
+
+  Future<void> _recordInteraction({
+    String? artist,
+    String? query,
+    Song? playedSong,
+    int weight = 1,
+  }) async {
+    if (artist != null && artist.trim().isNotEmpty) {
+      final mainArtist = artist.split(',').first.trim();
+      _artistScores[mainArtist] = (_artistScores[mainArtist] ?? 0) + weight;
+    }
+
+    if (query != null && query.trim().length >= 3) {
+      final q = query.trim();
+      _searchHistory.removeWhere((e) => e.toLowerCase() == q.toLowerCase());
+      _searchHistory.insert(0, q);
+      if (_searchHistory.length > 10) {
+        _searchHistory = _searchHistory.sublist(0, 10);
+      }
+    }
+
+    if (playedSong != null) {
+      recentSongs.removeWhere((s) => s.id == playedSong.id);
+      recentSongs.insert(0, playedSong);
+      if (recentSongs.length > 15) {
+        recentSongs = recentSongs.sublist(0, 15);
+      }
+    }
+
+    await _prefs.setString('taste_scores', json.encode(_artistScores));
+    await _prefs.setStringList('taste_searches', _searchHistory);
+    await _prefs.setString(
+      'taste_recent',
+      json.encode(recentSongs.map(_songToCache).toList()),
+    );
+
+    final uid = _supabaseUser?.id;
+    if (uid != null) {
+      Supabase.instance.client.from('users').update({
+        'taste_profile': {
+          'scores': _artistScores,
+          'searches': _searchHistory,
+        },
+      }).eq('id', uid).catchError((_) {});
+    }
+  }
+
+  Future<void> loadRecommendations({bool forceRefresh = false}) async {
+    if (loadingRecommendations) return;
+    if (spotifyShelves.isNotEmpty && !forceRefresh) return;
+
+    loadingRecommendations = true;
+    notifyListeners();
+
+    try {
+      final sortedArtists = _artistScores.entries.toList()
+        ..sort((a, b) => b.value.compareTo(a.value));
+
+      final shelves = <SpotifyShelf>[];
+      final mixPool = <Song>[];
+
+      if (sortedArtists.isNotEmpty) {
+        for (final entry in sortedArtists.take(3)) {
+          final artistName = entry.key;
+          final tracks = await api.search(artistName);
+          if (tracks.isEmpty) continue;
+
+          mixPool.addAll(tracks.take(6));
+          shelves.add(
+            SpotifyShelf(
+              title: shelves.isEmpty
+                  ? 'Lebih banyak dari $artistName'
+                  : 'Karena kamu mendengarkan $artistName',
+              subtitle: 'Artis favoritmu',
+              songs: tracks.take(12).toList(),
+            ),
+          );
+        }
+      } else if (_searchHistory.isNotEmpty) {
+        final q = _searchHistory.first;
+        final tracks = await api.search(q);
+        mixPool.addAll(tracks);
+        if (tracks.isNotEmpty) {
+          shelves.add(
+            SpotifyShelf(
+              title: 'Berdasarkan pencarian "$q"',
+              songs: tracks.take(12).toList(),
+            ),
+          );
+        }
+      } else {
+        final hits = await api.search('Top Hits Indonesia');
+        final viral = await api.search('Lagu Viral TikTok Indonesia');
+        mixPool.addAll(hits.take(8));
+        if (hits.isNotEmpty) {
+          shelves.add(
+            SpotifyShelf(title: 'Terpopuler Hari Ini', songs: hits.take(12).toList()),
+          );
+        }
+        if (viral.isNotEmpty) {
+          shelves.add(
+            SpotifyShelf(title: 'Sedang Viral', songs: viral.take(12).toList()),
+          );
+        }
+      }
+
+      if (mixPool.isNotEmpty) {
+        final uniqueMix = <String, Song>{};
+        for (final s in mixPool) {
+          uniqueMix[s.id] = s;
+        }
+        final mixList = uniqueMix.values.toList()..shuffle();
+        shelves.insert(
+          0,
+          SpotifyShelf(
+            title: 'Daily Mix Untukmu',
+            subtitle: sortedArtists.isNotEmpty
+                ? sortedArtists.take(3).map((e) => e.key).join(', ')
+                : 'Pilihan segar untukmu',
+            songs: mixList.take(15).toList(),
+          ),
+        );
+      }
+
+      spotifyShelves = shelves;
+    } catch (e) {
+      debugPrint('spotify shelves error: $e');
+    }
+
+    loadingRecommendations = false;
+    notifyListeners();
+  }
+
   Future<void> search(String query) async {
     if (query.trim().isEmpty) return;
     searching = true;
     notifyListeners();
     try {
       results = await api.search(query.trim());
+      await _recordInteraction(query: query, weight: 2);
     } catch (e) {
       debugPrint('search error: $e');
       results = [];
@@ -124,10 +342,17 @@ class AppState extends ChangeNotifier {
     searching = false;
     notifyListeners();
   }
+   
+    void clearResults() {
+    results = [];
+    notifyListeners();
+  }
 
   Future<void> play(Song song, {List<Song>? queue}) async {
     try {
       await handler.playSong(song, contextQueue: queue);
+      await _recordInteraction(artist: song.artist, playedSong: song, weight: 3);
+      notifyListeners();
     } catch (e) {
       debugPrint('play error: $e');
     }
@@ -222,6 +447,7 @@ class AppState extends ChangeNotifier {
   Future<void> addSong(Playlist p, Song song) async {
     if (p.songs.any((s) => s.id == song.id)) return;
     p.songs.add(song);
+    await _recordInteraction(artist: song.artist, weight: 5);
     await _persist();
   }
 
@@ -236,6 +462,7 @@ class AppState extends ChangeNotifier {
       final ready = _findDownloaded(song.id) ?? await _fetchAndStore(song);
       p.songs.removeWhere((s) => s.id == song.id);
       p.songs.add(ready);
+      await _recordInteraction(artist: song.artist, weight: 5);
       await _persist();
     } catch (e) {
       debugPrint('download error: $e');
