@@ -152,7 +152,7 @@ class AppState extends ChangeNotifier {
       if (rawRecent != null) {
         final list = json.decode(rawRecent) as List;
         recentSongs = list
-            .map((e) => _songFromCache(e as Map<String, dynamic>))
+            .map((e) => Song.fromJson(e as Map<String, dynamic>))
             .toList();
       }
     } catch (_) {}
@@ -177,24 +177,6 @@ class AppState extends ChangeNotifier {
       } catch (_) {}
     }
   }
-
-  Map<String, dynamic> _songToCache(Song s) => {
-        'id': s.id,
-        'title': s.title,
-        'artist': s.artist,
-        'album': s.album,
-        'artUri': s.artUri?.toString(),
-        'localPath': s.localPath,
-      };
-
-  Song _songFromCache(Map<String, dynamic> m) => Song(
-        id: (m['id'] ?? '').toString(),
-        title: (m['title'] ?? '').toString(),
-        artist: (m['artist'] ?? '').toString(),
-        album: m['album']?.toString(),
-        artUri: m['artUri'] != null ? Uri.tryParse(m['artUri'].toString()) : null,
-        localPath: m['localPath']?.toString(),
-      );
 
   Future<void> _recordInteraction({
     String? artist,
@@ -228,7 +210,7 @@ class AppState extends ChangeNotifier {
     await _prefs.setStringList('taste_searches', _searchHistory);
     await _prefs.setString(
       'taste_recent',
-      json.encode(recentSongs.map(_songToCache).toList()),
+      json.encode(recentSongs.map((s) => s.toJson()).toList()),
     );
 
     final uid = _supabaseUser?.id;
@@ -342,8 +324,8 @@ class AppState extends ChangeNotifier {
     searching = false;
     notifyListeners();
   }
-   
-    void clearResults() {
+
+  void clearResults() {
     results = [];
     notifyListeners();
   }
